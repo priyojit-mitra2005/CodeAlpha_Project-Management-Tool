@@ -1,10 +1,6 @@
 # 📋 Project Management Tool
 
 <p align="center">
-  <img src="assets/banner.png" alt="Project Management Tool Banner" width="100%">
-</p>
-
-<p align="center">
   <strong>A modern, responsive Project Management Tool built using HTML, CSS, and JavaScript to streamline project planning, task management, and team productivity.</strong>
 </p>
 
