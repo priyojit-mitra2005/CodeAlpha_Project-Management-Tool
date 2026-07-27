@@ -1,0 +1,36 @@
+{
+  "name": "project-management-tool",
+  "version": "1.0.0",
+  "description": "Collaborative project management tool with Kanban boards, tasks, real-time WebSockets, and authentication",
+  "main": "server/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server/index.js",
+    "server": "node server/index.js",
+    "client": "vite --config client/vite.config.js client",
+    "dev": "concurrently \"npm run server\" \"npm run client\"",
+    "build": "vite build --config client/vite.config.js client"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "jsonwebtoken": "^9.0.2",
+    "socket.io": "^4.8.1",
+    "sqlite3": "^5.1.7"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.0.0",
+    "@types/react": "^19.0.8",
+    "@types/react-dom": "^19.0.3",
+    "@vitejs/plugin-react": "^4.3.4",
+    "concurrently": "^9.1.2",
+    "lucide-react": "^0.475.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "socket.io-client": "^4.8.1",
+    "tailwindcss": "^4.0.0",
+    "vite": "^6.1.0"
+  }
+}
