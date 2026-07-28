@@ -1,5 +1,7 @@
 # 📋 Project Management Tool
 
+<img width="1312" height="747" alt="image" src="https://github.com/user-attachments/assets/8daebaae-f495-418e-a17c-2c3fda67fb1a" />
+
 <p align="center">
   <strong>A modern, responsive Project Management Tool built using HTML, CSS, and JavaScript to streamline project planning, task management, and team productivity.</strong>
 </p>
