@@ -1,6 +1,6 @@
 import express from 'express';
 import { run, getOne, query } from '../db.js';
-import { authenticateToken } from '../middleware/auth.js';
+import { authenticateToken, isProjectMember } from '../middleware/auth.js';
 
 const router = express.Router();
 
@@ -108,13 +108,29 @@ router.get('/:id', authenticateToken, async (req, res) => {
 
     // Fetch members
     const members = await query(
-      `SELECT u.id, u.name, u.email, u.avatar, u.role as user_role, pm.role as project_role, pm.joined_at
+      `SELECT u.id, u.name, u.email, u.avatar, u.role as user_role, pm.role as project_role, pm.joined_at, 0 as is_pending
        FROM project_members pm
        JOIN users u ON pm.user_id = u.id
        WHERE pm.project_id = ?
        ORDER BY pm.joined_at ASC`,
       [projectId]
     );
+
+    // Fetch pending email invitations
+    const pendingInvites = await query(
+      `SELECT id, email as name, email, role as project_role, created_at as joined_at, 1 as is_pending
+       FROM project_invitations
+       WHERE project_id = ?`,
+      [projectId]
+    );
+
+    const allMembers = [
+      ...members,
+      ...pendingInvites.map(inv => ({
+        ...inv,
+        avatar: `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(inv.email)}`
+      }))
+    ];
 
     // Fetch columns
     const columns = await query(
@@ -172,7 +188,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
 
     res.json({
       ...project,
-      members,
+      members: allMembers,
       columns: columnsWithTasks,
       activities
     });
@@ -186,7 +202,12 @@ router.get('/:id', authenticateToken, async (req, res) => {
 router.put('/:id', authenticateToken, async (req, res) => {
   try {
     const projectId = req.params.id;
+    const userId = req.user.id;
     const { name, description, color, icon } = req.body;
+
+    if (!(await isProjectMember(projectId, userId))) {
+      return res.status(403).json({ error: 'Access denied to this project' });
+    }
 
     await run(
       'UPDATE projects SET name = ?, description = ?, color = ?, icon = ? WHERE id = ?',
@@ -216,39 +237,76 @@ router.delete('/:id', authenticateToken, async (req, res) => {
   }
 });
 
-// Add member to project
+// Add member or invite email to project
 router.post('/:id/members', authenticateToken, async (req, res) => {
   try {
     const projectId = req.params.id;
-    const { userId, role } = req.body;
+    const userId = req.user.id;
+    const { userId: targetUserId, email, role } = req.body;
 
-    if (!userId) return res.status(400).json({ error: 'User ID is required' });
+    if (!(await isProjectMember(projectId, userId))) {
+      return res.status(403).json({ error: 'Access denied: Only project members can invite users' });
+    }
 
-    await run(
-      'INSERT OR IGNORE INTO project_members (project_id, user_id, role) VALUES (?, ?, ?)',
-      [projectId, userId, role || 'member']
-    );
+    if (!targetUserId && !email) {
+      return res.status(400).json({ error: 'User ID or Email is required' });
+    }
 
-    const user = await getOne('SELECT id, name, email, avatar, role FROM users WHERE id = ?', [userId]);
+    let user = null;
+    if (targetUserId) {
+      user = await getOne('SELECT id, name, email, avatar, role FROM users WHERE id = ?', [targetUserId]);
+    } else if (email) {
+      user = await getOne('SELECT id, name, email, avatar, role FROM users WHERE LOWER(email) = LOWER(?)', [email.trim()]);
+    }
 
-    // Send notification to invited user
-    await run(
-      'INSERT INTO notifications (user_id, sender_id, type, title, message, entity_type, entity_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      [userId, req.user.id, 'project_invite', 'Project Invitation', `${req.user.name} added you to a project`, 'project', projectId]
-    );
-
-    res.status(201).json(user);
+    if (user) {
+      await run(
+        'INSERT OR IGNORE INTO project_members (project_id, user_id, role) VALUES (?, ?, ?)',
+        [projectId, user.id, role || 'member']
+      );
+      await run(
+        'INSERT INTO notifications (user_id, sender_id, type, title, message, entity_type, entity_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        [user.id, userId, 'project_invite', 'Project Invitation', `${req.user.name} added you to a project`, 'project', projectId]
+      );
+      return res.status(201).json({ ...user, project_role: role || 'member', is_pending: 0 });
+    } else {
+      // Create pending invitation for non-registered email
+      const targetEmail = email.trim().toLowerCase();
+      await run(
+        'INSERT OR REPLACE INTO project_invitations (project_id, email, role, invited_by) VALUES (?, ?, ?, ?)',
+        [projectId, targetEmail, role || 'member', userId]
+      );
+      return res.status(201).json({
+        id: targetEmail,
+        name: targetEmail,
+        email: targetEmail,
+        avatar: `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(targetEmail)}`,
+        project_role: role || 'member',
+        is_pending: 1
+      });
+    }
   } catch (err) {
+    console.error('Add member error:', err);
     res.status(500).json({ error: 'Failed to add project member' });
   }
 });
 
-// Remove member from project
-router.delete('/:id/members/:userId', authenticateToken, async (req, res) => {
+// Remove member or cancel invitation from project
+router.delete('/:id/members/:target', authenticateToken, async (req, res) => {
   try {
-    const { id: projectId, userId } = req.params;
-    await run('DELETE FROM project_members WHERE project_id = ? AND user_id = ?', [projectId, userId]);
-    res.json({ message: 'Member removed' });
+    const { id: projectId, target } = req.params;
+    const userId = req.user.id;
+
+    if (!(await isProjectMember(projectId, userId))) {
+      return res.status(403).json({ error: 'Access denied: Only project members can remove users' });
+    }
+
+    if (target.includes('@')) {
+      await run('DELETE FROM project_invitations WHERE project_id = ? AND LOWER(email) = LOWER(?)', [projectId, decodeURIComponent(target)]);
+    } else {
+      await run('DELETE FROM project_members WHERE project_id = ? AND user_id = ?', [projectId, target]);
+    }
+    res.json({ message: 'Member or invitation removed' });
   } catch (err) {
     res.status(500).json({ error: 'Failed to remove member' });
   }
@@ -258,7 +316,12 @@ router.delete('/:id/members/:userId', authenticateToken, async (req, res) => {
 router.post('/:id/columns', authenticateToken, async (req, res) => {
   try {
     const projectId = req.params.id;
+    const userId = req.user.id;
     const { title, color } = req.body;
+
+    if (!(await isProjectMember(projectId, userId))) {
+      return res.status(403).json({ error: 'Access denied to this project' });
+    }
 
     if (!title) return res.status(400).json({ error: 'Column title required' });
 
@@ -280,9 +343,15 @@ router.post('/:id/columns', authenticateToken, async (req, res) => {
 // Update column
 router.put('/:id/columns/:colId', authenticateToken, async (req, res) => {
   try {
-    const { colId } = req.params;
+    const { id: projectId, colId } = req.params;
+    const userId = req.user.id;
     const { title, color } = req.body;
-    await run('UPDATE columns SET title = ?, color = ? WHERE id = ?', [title, color, colId]);
+
+    if (!(await isProjectMember(projectId, userId))) {
+      return res.status(403).json({ error: 'Access denied to this project' });
+    }
+
+    await run('UPDATE columns SET title = ?, color = ? WHERE id = ? AND project_id = ?', [title, color, colId, projectId]);
     res.json({ message: 'Column updated' });
   } catch (err) {
     res.status(500).json({ error: 'Failed to update column' });
@@ -292,8 +361,14 @@ router.put('/:id/columns/:colId', authenticateToken, async (req, res) => {
 // Delete column
 router.delete('/:id/columns/:colId', authenticateToken, async (req, res) => {
   try {
-    const { colId } = req.params;
-    await run('DELETE FROM columns WHERE id = ?', [colId]);
+    const { id: projectId, colId } = req.params;
+    const userId = req.user.id;
+
+    if (!(await isProjectMember(projectId, userId))) {
+      return res.status(403).json({ error: 'Access denied to this project' });
+    }
+
+    await run('DELETE FROM columns WHERE id = ? AND project_id = ?', [colId, projectId]);
     res.json({ message: 'Column deleted' });
   } catch (err) {
     res.status(500).json({ error: 'Failed to delete column' });

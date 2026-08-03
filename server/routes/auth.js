@@ -27,6 +27,25 @@ router.post('/register', async (req, res) => {
       [name, email, hashedPassword, avatar, role || 'Member']
     );
 
+    // Auto-claim any pending project invitations for this email address
+    try {
+      const pendingInvites = await query('SELECT project_id, role, invited_by FROM project_invitations WHERE LOWER(email) = LOWER(?)', [email]);
+      for (let invite of pendingInvites) {
+        await run('INSERT OR IGNORE INTO project_members (project_id, user_id, role) VALUES (?, ?, ?)', [
+          invite.project_id,
+          result.id,
+          invite.role || 'member'
+        ]);
+        await run(
+          'INSERT INTO notifications (user_id, sender_id, type, title, message, entity_type, entity_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
+          [result.id, invite.invited_by, 'project_invite', 'Project Invitation Accepted', 'You automatically joined a project you were invited to!', 'project', invite.project_id]
+        );
+      }
+      await run('DELETE FROM project_invitations WHERE LOWER(email) = LOWER(?)', [email]);
+    } catch (inviteErr) {
+      console.error('Pending invitation claim error:', inviteErr);
+    }
+
     const user = { id: result.id, name, email, avatar, role: role || 'Member' };
     const token = jwt.sign(user, JWT_SECRET, { expiresIn: '7d' });
 

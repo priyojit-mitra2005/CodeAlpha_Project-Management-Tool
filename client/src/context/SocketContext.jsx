@@ -22,12 +22,18 @@ export const SocketProvider = ({ children }) => {
 
     const socketInstance = io({
       auth: { token },
-      autoConnect: true
+      autoConnect: true,
+      transports: ['websocket', 'polling']
     });
 
     socketInstance.on('connect', () => {
       console.log('⚡ Connected to Socket.IO real-time engine');
       setConnected(true);
+    });
+
+    socketInstance.on('connect_error', (err) => {
+      console.warn('Socket connection warning (real-time features offline):', err.message);
+      setConnected(false);
     });
 
     socketInstance.on('disconnect', () => {

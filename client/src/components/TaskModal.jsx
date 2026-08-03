@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { X, Calendar, UserPlus, CheckSquare, MessageSquare, Trash2, Send, Clock, AlertCircle, Plus, Check } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useSocket } from '../context/SocketContext';
+import { safeFetchJson } from '../utils/api';
 
 export default function TaskModal({ taskId, isOpen, onClose, onTaskUpdated, onTaskDeleted, projectMembers = [] }) {
   const { token, user } = useAuth();
@@ -26,19 +27,16 @@ export default function TaskModal({ taskId, isOpen, onClose, onTaskUpdated, onTa
     if (!taskId || !token) return;
     setLoading(true);
     try {
-      const res = await fetch(`/api/tasks/${taskId}`, {
+      const data = await safeFetchJson(`/api/tasks/${taskId}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      if (res.ok) {
-        const data = await res.json();
-        setTask(data);
-        setTitle(data.title);
-        setDescription(data.description || '');
-        setPriority(data.priority || 'medium');
-        setDueDate(data.due_date || '');
-      }
+      setTask(data);
+      setTitle(data.title);
+      setDescription(data.description || '');
+      setPriority(data.priority || 'medium');
+      setDueDate(data.due_date || '');
     } catch (err) {
-      console.error('Fetch task error:', err);
+      console.error('Fetch task error:', err.message);
     } finally {
       setLoading(false);
     }
@@ -54,7 +52,7 @@ export default function TaskModal({ taskId, isOpen, onClose, onTaskUpdated, onTa
 
   const handleUpdateTask = async () => {
     try {
-      const res = await fetch(`/api/tasks/${taskId}`, {
+      await safeFetchJson(`/api/tasks/${taskId}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -62,36 +60,32 @@ export default function TaskModal({ taskId, isOpen, onClose, onTaskUpdated, onTa
         },
         body: JSON.stringify({ title, description, priority, due_date: dueDate })
       });
-      if (res.ok) {
-        setIsEditing(false);
-        fetchTaskDetails();
-        if (onTaskUpdated) onTaskUpdated();
-        emitTaskUpdated({ projectId: task?.project_id, taskId });
-      }
+      setIsEditing(false);
+      fetchTaskDetails();
+      if (onTaskUpdated) onTaskUpdated();
+      emitTaskUpdated({ projectId: task?.project_id, taskId });
     } catch (err) {
-      console.error('Update task error:', err);
+      console.error('Update task error:', err.message);
     }
   };
 
   const handleDeleteTask = async () => {
     if (!window.confirm('Are you sure you want to delete this task card?')) return;
     try {
-      const res = await fetch(`/api/tasks/${taskId}`, {
+      await safeFetchJson(`/api/tasks/${taskId}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` }
       });
-      if (res.ok) {
-        if (onTaskDeleted) onTaskDeleted(taskId, task?.column_id);
-        onClose();
-      }
+      if (onTaskDeleted) onTaskDeleted(taskId, task?.column_id);
+      onClose();
     } catch (err) {
-      console.error('Delete task error:', err);
+      console.error('Delete task error:', err.message);
     }
   };
 
   const handleToggleAssignee = async (memberId) => {
     try {
-      const res = await fetch(`/api/tasks/${taskId}/assignees`, {
+      await safeFetchJson(`/api/tasks/${taskId}/assignees`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -99,12 +93,10 @@ export default function TaskModal({ taskId, isOpen, onClose, onTaskUpdated, onTa
         },
         body: JSON.stringify({ userId: memberId })
       });
-      if (res.ok) {
-        fetchTaskDetails();
-        if (onTaskUpdated) onTaskUpdated();
-      }
+      fetchTaskDetails();
+      if (onTaskUpdated) onTaskUpdated();
     } catch (err) {
-      console.error('Assignee toggle error:', err);
+      console.error('Assignee toggle error:', err.message);
     }
   };
 
@@ -112,7 +104,7 @@ export default function TaskModal({ taskId, isOpen, onClose, onTaskUpdated, onTa
     e.preventDefault();
     if (!newChecklist.trim()) return;
     try {
-      const res = await fetch(`/api/tasks/${taskId}/checklists`, {
+      await safeFetchJson(`/api/tasks/${taskId}/checklists`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -120,19 +112,17 @@ export default function TaskModal({ taskId, isOpen, onClose, onTaskUpdated, onTa
         },
         body: JSON.stringify({ title: newChecklist })
       });
-      if (res.ok) {
-        setNewChecklist('');
-        fetchTaskDetails();
-        if (onTaskUpdated) onTaskUpdated();
-      }
+      setNewChecklist('');
+      fetchTaskDetails();
+      if (onTaskUpdated) onTaskUpdated();
     } catch (err) {
-      console.error('Add checklist error:', err);
+      console.error('Add checklist error:', err.message);
     }
   };
 
   const handleToggleChecklist = async (checkId, currentStatus) => {
     try {
-      const res = await fetch(`/api/tasks/${taskId}/checklists/${checkId}`, {
+      await safeFetchJson(`/api/tasks/${taskId}/checklists/${checkId}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -140,25 +130,23 @@ export default function TaskModal({ taskId, isOpen, onClose, onTaskUpdated, onTa
         },
         body: JSON.stringify({ completed: !currentStatus })
       });
-      if (res.ok) {
-        fetchTaskDetails();
-        if (onTaskUpdated) onTaskUpdated();
-      }
+      fetchTaskDetails();
+      if (onTaskUpdated) onTaskUpdated();
     } catch (err) {
-      console.error('Toggle checklist error:', err);
+      console.error('Toggle checklist error:', err.message);
     }
   };
 
   const handleDeleteChecklist = async (checkId) => {
     try {
-      await fetch(`/api/tasks/${taskId}/checklists/${checkId}`, {
+      await safeFetchJson(`/api/tasks/${taskId}/checklists/${checkId}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` }
       });
       fetchTaskDetails();
       if (onTaskUpdated) onTaskUpdated();
     } catch (err) {
-      console.error('Delete checklist error:', err);
+      console.error('Delete checklist error:', err.message);
     }
   };
 
@@ -167,7 +155,7 @@ export default function TaskModal({ taskId, isOpen, onClose, onTaskUpdated, onTa
     if (!newComment.trim()) return;
     setCommenting(true);
     try {
-      const res = await fetch(`/api/tasks/${taskId}/comments`, {
+      const commentData = await safeFetchJson(`/api/tasks/${taskId}/comments`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -175,14 +163,11 @@ export default function TaskModal({ taskId, isOpen, onClose, onTaskUpdated, onTa
         },
         body: JSON.stringify({ content: newComment })
       });
-      if (res.ok) {
-        const commentData = await res.json();
-        setNewComment('');
-        fetchTaskDetails();
-        emitCommentAdded({ projectId: task?.project_id, taskId, comment: commentData });
-      }
+      setNewComment('');
+      fetchTaskDetails();
+      emitCommentAdded({ projectId: task?.project_id, taskId, comment: commentData });
     } catch (err) {
-      console.error('Add comment error:', err);
+      console.error('Add comment error:', err.message);
     } finally {
       setCommenting(false);
     }
@@ -190,13 +175,13 @@ export default function TaskModal({ taskId, isOpen, onClose, onTaskUpdated, onTa
 
   const handleDeleteComment = async (commentId) => {
     try {
-      await fetch(`/api/tasks/${taskId}/comments/${commentId}`, {
+      await safeFetchJson(`/api/tasks/${taskId}/comments/${commentId}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` }
       });
       fetchTaskDetails();
     } catch (err) {
-      console.error('Delete comment error:', err);
+      console.error('Delete comment error:', err.message);
     }
   };
 

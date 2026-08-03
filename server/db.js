@@ -3,10 +3,18 @@ import path from 'path';
 import bcrypt from 'bcryptjs';
 import { fileURLToPath } from 'url';
 
+import fs from 'fs';
+import os from 'os';
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const dbPath = path.resolve(__dirname, '../database.sqlite');
+// Determine safe database path (use /tmp for Vercel / serverless environments)
+let dbPath = path.resolve(__dirname, '../database.sqlite');
+if (process.env.VERCEL) {
+  dbPath = path.join(os.tmpdir(), 'database.sqlite');
+}
+
 sqlite3.verbose();
 
 const db = new sqlite3.Database(dbPath, (err) => {
@@ -48,7 +56,11 @@ export const run = (sql, params = []) => {
   });
 };
 
+let dbInitialized = false;
+
 export const initDb = async () => {
+  if (dbInitialized) return;
+  dbInitialized = true;
   await run(`
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -84,6 +96,20 @@ export const initDb = async () => {
       UNIQUE(project_id, user_id),
       FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+  `);
+
+  await run(`
+    CREATE TABLE IF NOT EXISTS project_invitations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      project_id INTEGER NOT NULL,
+      email TEXT NOT NULL,
+      role TEXT DEFAULT 'member',
+      invited_by INTEGER NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(project_id, email),
+      FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+      FOREIGN KEY (invited_by) REFERENCES users(id) ON DELETE CASCADE
     );
   `);
 

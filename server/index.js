@@ -22,8 +22,15 @@ const PORT = process.env.PORT || 5000;
 app.use(cors());
 app.use(express.json());
 
-// Initialize Database
-await initDb();
+// Initialize Database helper
+export const initApp = async () => {
+  await initDb();
+};
+
+// Auto initialize for standalone server
+if (!process.env.VERCEL) {
+  await initApp();
+}
 
 // Initialize WebSockets
 initSocket(server);
@@ -43,14 +50,26 @@ app.get('/api/health', (req, res) => {
 const clientDistPath = path.resolve(__dirname, '../client/dist');
 app.use(express.static(clientDistPath));
 
-app.get('*', (req, res) => {
-  if (!req.path.startsWith('/api')) {
+app.use((req, res, next) => {
+  if (req.method === 'GET' && !req.path.startsWith('/api')) {
     res.sendFile(path.resolve(clientDistPath, 'index.html'));
   } else {
     res.status(404).json({ error: 'API route not found' });
   }
 });
 
-server.listen(PORT, () => {
-  console.log(`🚀 Project Management Tool server running on http://localhost:${PORT}`);
+// Global JSON Error Handler (Prevents HTML stack traces from breaking res.json() on client)
+app.use((err, req, res, next) => {
+  console.error('Server error:', err);
+  res.status(500).json({ error: err.message || 'Internal Server Error' });
 });
+
+// Only start listener if running standalone (not on Vercel)
+if (!process.env.VERCEL) {
+  server.listen(PORT, () => {
+    console.log(`🚀 Project Management Tool server running on http://localhost:${PORT}`);
+  });
+}
+
+export default app;
+

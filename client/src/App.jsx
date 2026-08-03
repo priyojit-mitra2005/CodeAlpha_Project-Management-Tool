@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { safeFetchJson } from './utils/api';
 import { useAuth } from './context/AuthContext';
 import { useSocket } from './context/SocketContext';
 import Navbar from './components/Navbar';
@@ -31,18 +32,15 @@ export default function App() {
   const fetchProjects = useCallback(async () => {
     if (!token) return;
     try {
-      const res = await fetch('/api/projects', {
+      const data = await safeFetchJson('/api/projects', {
         headers: { Authorization: `Bearer ${token}` }
       });
-      if (res.ok) {
-        const data = await res.json();
-        setProjects(data);
-        if (data.length > 0 && !activeProjectId) {
-          setActiveProjectId(data[0].id);
-        }
+      setProjects(data);
+      if (data.length > 0 && !activeProjectId) {
+        setActiveProjectId(data[0].id);
       }
     } catch (err) {
-      console.error('Fetch projects error:', err);
+      console.error('Fetch projects error:', err.message);
     }
   }, [token, activeProjectId]);
 
@@ -50,15 +48,12 @@ export default function App() {
   const fetchProjectDetails = useCallback(async (projId) => {
     if (!token || !projId) return;
     try {
-      const res = await fetch(`/api/projects/${projId}`, {
+      const data = await safeFetchJson(`/api/projects/${projId}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      if (res.ok) {
-        const data = await res.json();
-        setCurrentProject(data);
-      }
+      setCurrentProject(data);
     } catch (err) {
-      console.error('Fetch project details error:', err);
+      console.error('Fetch project details error:', err.message);
     }
   }, [token]);
 
@@ -150,7 +145,7 @@ export default function App() {
     });
 
     try {
-      await fetch(`/api/tasks/${taskId}/move`, {
+      await safeFetchJson(`/api/tasks/${taskId}/move`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -160,7 +155,7 @@ export default function App() {
       });
       fetchProjectDetails(activeProjectId);
     } catch (err) {
-      console.error('Failed to persist task move:', err);
+      console.error('Failed to persist task move:', err.message);
     }
   };
 
@@ -168,7 +163,7 @@ export default function App() {
   const handleTaskCreated = async (columnId, title) => {
     if (!activeProjectId || !token) return null;
     try {
-      const res = await fetch('/api/tasks', {
+      const createdTask = await safeFetchJson('/api/tasks', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -181,14 +176,11 @@ export default function App() {
           priority: 'medium'
         })
       });
-      if (res.ok) {
-        const createdTask = await res.json();
-        fetchProjectDetails(activeProjectId);
-        fetchProjects();
-        return createdTask;
-      }
+      fetchProjectDetails(activeProjectId);
+      fetchProjects();
+      return createdTask;
     } catch (err) {
-      console.error('Create task error:', err);
+      console.error('Create task error:', err.message);
     }
     return null;
   };
@@ -198,7 +190,7 @@ export default function App() {
     const title = window.prompt('Enter new column title:');
     if (!title || !activeProjectId) return;
     try {
-      const res = await fetch(`/api/projects/${activeProjectId}/columns`, {
+      await safeFetchJson(`/api/projects/${activeProjectId}/columns`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -206,11 +198,9 @@ export default function App() {
         },
         body: JSON.stringify({ title, color: '#6366F1' })
       });
-      if (res.ok) {
-        fetchProjectDetails(activeProjectId);
-      }
+      fetchProjectDetails(activeProjectId);
     } catch (err) {
-      console.error('Add column error:', err);
+      console.error('Add column error:', err.message);
     }
   };
 

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Bell, CheckCheck, MessageSquare, UserPlus, FileText } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { safeFetchJson } from '../utils/api';
 
 export default function NotificationsPopover({ onSelectTask }) {
   const { token } = useAuth();
@@ -10,15 +11,12 @@ export default function NotificationsPopover({ onSelectTask }) {
   const fetchNotifications = async () => {
     if (!token) return;
     try {
-      const res = await fetch('/api/notifications', {
+      const data = await safeFetchJson('/api/notifications', {
         headers: { Authorization: `Bearer ${token}` }
       });
-      if (res.ok) {
-        const data = await res.json();
-        setNotifications(data);
-      }
+      setNotifications(data);
     } catch (err) {
-      console.error('Fetch notifications error:', err);
+      console.error('Fetch notifications error:', err.message);
     }
   };
 
@@ -32,7 +30,7 @@ export default function NotificationsPopover({ onSelectTask }) {
 
   const markAsRead = async (notificationId = null, markAll = false) => {
     try {
-      await fetch('/api/notifications/read', {
+      await safeFetchJson('/api/notifications/read', {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -46,7 +44,7 @@ export default function NotificationsPopover({ onSelectTask }) {
         setNotifications(prev => prev.map(n => n.id === notificationId ? { ...n, is_read: 1 } : n));
       }
     } catch (err) {
-      console.error('Mark read error:', err);
+      console.error('Mark read error:', err.message);
     }
   };
 

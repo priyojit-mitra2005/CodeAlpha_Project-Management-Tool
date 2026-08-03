@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { safeFetchJson } from '../utils/api';
 
 const AuthContext = createContext();
 
@@ -15,22 +16,19 @@ export const AuthProvider = ({ children }) => {
         return;
       }
       try {
-        const res = await fetch('/api/auth/me', {
+        const userData = await safeFetchJson('/api/auth/me', {
           headers: {
             Authorization: `Bearer ${token}`
           }
         });
-        if (res.ok) {
-          const userData = await res.json();
-          setUser(userData);
-        } else {
-          // Token expired or invalid
+        setUser(userData);
+      } catch (err) {
+        console.error('Auth verification failed:', err.message);
+        if (err.status === 401 || err.status === 403) {
           localStorage.removeItem('token');
           setToken(null);
           setUser(null);
         }
-      } catch (err) {
-        console.error('Auth verification failed:', err);
       } finally {
         setLoading(false);
       }
@@ -40,15 +38,11 @@ export const AuthProvider = ({ children }) => {
   }, [token]);
 
   const login = async (email, password) => {
-    const res = await fetch('/api/auth/login', {
+    const data = await safeFetchJson('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password })
     });
-    const data = await res.json();
-    if (!res.ok) {
-      throw new Error(data.error || 'Failed to login');
-    }
     localStorage.setItem('token', data.token);
     setToken(data.token);
     setUser(data.user);
@@ -56,20 +50,17 @@ export const AuthProvider = ({ children }) => {
   };
 
   const register = async (name, email, password, role) => {
-    const res = await fetch('/api/auth/register', {
+    const data = await safeFetchJson('/api/auth/register', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name, email, password, role })
     });
-    const data = await res.json();
-    if (!res.ok) {
-      throw new Error(data.error || 'Failed to register');
-    }
     localStorage.setItem('token', data.token);
     setToken(data.token);
     setUser(data.user);
     return data.user;
   };
+
 
   const logout = () => {
     localStorage.removeItem('token');
