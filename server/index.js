@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import express from 'express';
 import http from 'http';
 import cors from 'cors';
@@ -16,11 +17,22 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const server = http.createServer(app);
-const PORT = process.env.PORT || 5000;
+const PORT = Number(process.env.PORT || 5001);
 
 // Enable CORS & JSON parsing
 app.use(cors());
 app.use(express.json());
+
+// Auto-initialize DB middleware (guarantees DB tables exist on Vercel serverless requests)
+app.use(async (req, res, next) => {
+  try {
+    await initDb();
+    next();
+  } catch (err) {
+    console.error('Database initialization middleware error:', err);
+    res.status(500).json({ error: 'Database initialization error' });
+  }
+});
 
 // Initialize Database helper
 export const initApp = async () => {

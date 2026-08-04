@@ -1,6 +1,7 @@
 import express from 'express';
 import { run, getOne, query } from '../db.js';
 import { authenticateToken, isProjectMember } from '../middleware/auth.js';
+import { sendProjectInvitationEmail } from '../services/email.js';
 
 const router = express.Router();
 
@@ -252,6 +253,8 @@ router.post('/:id/members', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: 'User ID or Email is required' });
     }
 
+    const project = await getOne('SELECT id, name, description FROM projects WHERE id = ?', [projectId]);
+
     let user = null;
     if (targetUserId) {
       user = await getOne('SELECT id, name, email, avatar, role FROM users WHERE id = ?', [targetUserId]);
@@ -259,30 +262,52 @@ router.post('/:id/members', authenticateToken, async (req, res) => {
       user = await getOne('SELECT id, name, email, avatar, role FROM users WHERE LOWER(email) = LOWER(?)', [email.trim()]);
     }
 
+    const recipientEmail = user ? user.email : email.trim().toLowerCase();
+    const assignedRole = role || 'member';
+
+    // Dispatch real invitation email
+    const mailResult = await sendProjectInvitationEmail({
+      toEmail: recipientEmail,
+      inviterName: req.user.name,
+      inviterEmail: req.user.email,
+      projectName: project ? project.name : 'Project',
+      projectDescription: project ? project.description : '',
+      projectRole: assignedRole,
+      isExistingUser: !!user
+    });
+
     if (user) {
       await run(
         'INSERT OR IGNORE INTO project_members (project_id, user_id, role) VALUES (?, ?, ?)',
-        [projectId, user.id, role || 'member']
+        [projectId, user.id, assignedRole]
       );
       await run(
         'INSERT INTO notifications (user_id, sender_id, type, title, message, entity_type, entity_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        [user.id, userId, 'project_invite', 'Project Invitation', `${req.user.name} added you to a project`, 'project', projectId]
+        [user.id, userId, 'project_invite', 'Project Invitation', `${req.user.name} added you to project "${project?.name || ''}"`, 'project', projectId]
       );
-      return res.status(201).json({ ...user, project_role: role || 'member', is_pending: 0 });
+      return res.status(201).json({
+        ...user,
+        project_role: assignedRole,
+        is_pending: 0,
+        emailSent: mailResult.success,
+        emailPreviewUrl: mailResult.previewUrl
+      });
     } else {
       // Create pending invitation for non-registered email
       const targetEmail = email.trim().toLowerCase();
       await run(
         'INSERT OR REPLACE INTO project_invitations (project_id, email, role, invited_by) VALUES (?, ?, ?, ?)',
-        [projectId, targetEmail, role || 'member', userId]
+        [projectId, targetEmail, assignedRole, userId]
       );
       return res.status(201).json({
         id: targetEmail,
         name: targetEmail,
         email: targetEmail,
         avatar: `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(targetEmail)}`,
-        project_role: role || 'member',
-        is_pending: 1
+        project_role: assignedRole,
+        is_pending: 1,
+        emailSent: mailResult.success,
+        emailPreviewUrl: mailResult.previewUrl
       });
     }
   } catch (err) {

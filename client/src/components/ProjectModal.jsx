@@ -17,6 +17,8 @@ export default function ProjectModal({ isOpen, onClose, project = null, onProjec
   const [allUsers, setAllUsers] = useState([]);
   const [inviteInput, setInviteInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [inviting, setInviting] = useState(false);
+  const [inviteStatus, setInviteStatus] = useState(null);
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -30,6 +32,7 @@ export default function ProjectModal({ isOpen, onClose, project = null, onProjec
     } else {
       setFormData({ name: '', description: '', color: '#6366F1', icon: 'layout-kanban' });
     }
+    setInviteStatus(null);
   }, [project, isOpen]);
 
   useEffect(() => {
@@ -72,12 +75,15 @@ export default function ProjectModal({ isOpen, onClose, project = null, onProjec
   const handleAddMember = async (e) => {
     if (e) e.preventDefault();
     if (!project || !inviteInput.trim()) return;
+    setInviting(true);
+    setInviteStatus(null);
+
     try {
       const payload = inviteInput.includes('@')
         ? { email: inviteInput.trim(), role: 'member' }
         : { userId: inviteInput, role: 'member' };
 
-      await safeFetchJson(`/api/projects/${project.id}/members`, {
+      const res = await safeFetchJson(`/api/projects/${project.id}/members`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -86,9 +92,17 @@ export default function ProjectModal({ isOpen, onClose, project = null, onProjec
         body: JSON.stringify(payload)
       });
       setInviteInput('');
+      setInviteStatus({
+        type: 'success',
+        message: `Invitation email ${res.emailSent ? 'sent' : 'queued'} to ${res.email || payload.email || 'user'}!`,
+        previewUrl: res.emailPreviewUrl
+      });
       if (onProjectSaved) onProjectSaved();
     } catch (err) {
       console.error('Add member error:', err.message);
+      setInviteStatus({ type: 'error', message: err.message || 'Failed to send invitation email' });
+    } finally {
+      setInviting(false);
     }
   };
 
@@ -205,12 +219,42 @@ export default function ProjectModal({ isOpen, onClose, project = null, onProjec
                 <button
                   type="button"
                   onClick={handleAddMember}
-                  disabled={!inviteInput.trim()}
-                  className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-semibold flex items-center gap-1.5 transition-all shadow"
+                  disabled={!inviteInput.trim() || inviting}
+                  className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-semibold flex items-center gap-1.5 transition-all shadow shrink-0"
                 >
-                  <Mail className="w-3.5 h-3.5" /> Invite
+                  {inviting ? (
+                    <>
+                      <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      Sending...
+                    </>
+                  ) : (
+                    <>
+                      <Mail className="w-3.5 h-3.5" /> Invite
+                    </>
+                  )}
                 </button>
               </div>
+
+              {inviteStatus && (
+                <div className={`mb-3 p-2.5 rounded-xl text-xs flex flex-col gap-1 ${
+                  inviteStatus.type === 'success' ? 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/20' : 'bg-rose-500/10 text-rose-300 border border-rose-500/20'
+                }`}>
+                  <div className="flex items-center gap-1.5 font-medium">
+                    {inviteStatus.type === 'success' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <X className="w-3.5 h-3.5 text-rose-400" />}
+                    {inviteStatus.message}
+                  </div>
+                  {inviteStatus.previewUrl && (
+                    <a
+                      href={inviteStatus.previewUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[11px] underline text-indigo-400 hover:text-indigo-300 transition-colors inline-flex items-center gap-1 font-mono mt-0.5"
+                    >
+                      <Mail className="w-3 h-3" /> View Sent Email Preview (Ethereal Dev Inbox) ↗
+                    </a>
+                  )}
+                </div>
+              )}
 
               <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
                 {project.members?.map((m) => (

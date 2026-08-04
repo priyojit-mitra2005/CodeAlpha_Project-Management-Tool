@@ -19,15 +19,8 @@
       "dest": "/api/index.js"
     },
     {
-      "src": "/socket.io/(.*)",
-      "dest": "/api/index.js"
-    },
-    {
-      "handle": "filesystem"
-    },
-    {
       "src": "/(.*)",
-      "dest": "/client/dist/index.html"
+      "dest": "/$1"
     }
   ]
 }
