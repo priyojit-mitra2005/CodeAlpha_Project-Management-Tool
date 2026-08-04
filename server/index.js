@@ -30,7 +30,7 @@ app.use(async (req, res, next) => {
     next();
   } catch (err) {
     console.error('Database initialization middleware error:', err);
-    res.status(500).json({ error: 'Database initialization error' });
+    res.status(500).json({ error: 'Database initialization error: ' + (err.message || err) });
   }
 });
 
@@ -42,10 +42,8 @@ export const initApp = async () => {
 // Auto initialize for standalone server
 if (!process.env.VERCEL) {
   await initApp();
+  initSocket(server);
 }
-
-// Initialize WebSockets
-initSocket(server);
 
 // API Routes
 app.use('/api/auth', authRoutes);
@@ -64,7 +62,12 @@ app.use(express.static(clientDistPath));
 
 app.use((req, res, next) => {
   if (req.method === 'GET' && !req.path.startsWith('/api')) {
-    res.sendFile(path.resolve(clientDistPath, 'index.html'));
+    const indexPath = path.resolve(clientDistPath, 'index.html');
+    if (fs.existsSync(indexPath)) {
+      res.sendFile(indexPath);
+    } else {
+      res.status(404).json({ error: 'API route not found' });
+    }
   } else {
     res.status(404).json({ error: 'API route not found' });
   }

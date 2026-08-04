@@ -10,15 +10,23 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Determine safe database path (use /tmp for Vercel / serverless environments)
-const rootDbPath = path.resolve(__dirname, '../database.sqlite');
-let dbPath = rootDbPath;
+let dbPath = path.resolve(process.cwd(), 'database.sqlite');
 
 if (process.env.VERCEL) {
   dbPath = path.join(os.tmpdir(), 'database.sqlite');
-  if (!fs.existsSync(dbPath) && fs.existsSync(rootDbPath)) {
+
+  const possibleSourcePaths = [
+    path.resolve(process.cwd(), 'database.sqlite'),
+    path.resolve(__dirname, '../database.sqlite'),
+    path.resolve(__dirname, './database.sqlite')
+  ];
+
+  const sourceDb = possibleSourcePaths.find(p => fs.existsSync(p));
+
+  if (!fs.existsSync(dbPath) && sourceDb) {
     try {
-      fs.copyFileSync(rootDbPath, dbPath);
-      console.log('Copied root database.sqlite to Vercel /tmp');
+      fs.copyFileSync(sourceDb, dbPath);
+      console.log(`Copied initial database from ${sourceDb} to Vercel /tmp`);
     } catch (copyErr) {
       console.error('Failed to copy database to /tmp:', copyErr.message);
     }
@@ -32,11 +40,11 @@ const db = new sqlite3.Database(dbPath, (err) => {
     console.error('Error opening database:', err.message);
   } else {
     console.log('Connected to SQLite database at:', dbPath);
+    db.run('PRAGMA foreign_keys = ON;', (pragmaErr) => {
+      if (pragmaErr) console.warn('PRAGMA foreign_keys warning:', pragmaErr.message);
+    });
   }
 });
-
-// Enable foreign keys
-db.run('PRAGMA foreign_keys = ON;');
 
 // Promisified helper methods
 export const query = (sql, params = []) => {
