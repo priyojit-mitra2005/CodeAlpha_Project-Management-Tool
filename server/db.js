@@ -1,77 +1,68 @@
-import sqlite3 from 'sqlite3';
+import Database from 'better-sqlite3';
 import path from 'path';
 import bcrypt from 'bcryptjs';
 import { fileURLToPath } from 'url';
-
 import fs from 'fs';
 import os from 'os';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Determine safe database path (use /tmp for Vercel / serverless environments)
+// Determine safe database path
+// Vercel serverless: use /tmp (writable). Local: use project root.
 let dbPath = path.resolve(process.cwd(), 'database.sqlite');
 
 if (process.env.VERCEL) {
   dbPath = path.join(os.tmpdir(), 'database.sqlite');
-
-  const possibleSourcePaths = [
-    path.resolve(process.cwd(), 'database.sqlite'),
-    path.resolve(__dirname, '../database.sqlite'),
-    path.resolve(__dirname, './database.sqlite')
-  ];
-
-  const sourceDb = possibleSourcePaths.find(p => fs.existsSync(p));
-
-  if (!fs.existsSync(dbPath) && sourceDb) {
-    try {
-      fs.copyFileSync(sourceDb, dbPath);
-      console.log(`Copied initial database from ${sourceDb} to Vercel /tmp`);
-    } catch (copyErr) {
-      console.error('Failed to copy database to /tmp:', copyErr.message);
-    }
-  }
 }
 
-sqlite3.verbose();
+// Open the database (better-sqlite3 is synchronous — no callback needed)
+let db;
+try {
+  db = new Database(dbPath, { verbose: null });
+  db.pragma('journal_mode = WAL');
+  db.pragma('foreign_keys = ON');
+  console.log('Connected to SQLite database at:', dbPath);
+} catch (err) {
+  console.error('Failed to open database:', err.message);
+  // Fallback to in-memory database if file open fails
+  db = new Database(':memory:');
+  db.pragma('journal_mode = WAL');
+  db.pragma('foreign_keys = ON');
+  console.warn('Falling back to in-memory SQLite database');
+}
 
-const db = new sqlite3.Database(dbPath, (err) => {
-  if (err) {
-    console.error('Error opening database:', err.message);
-  } else {
-    console.log('Connected to SQLite database at:', dbPath);
-    db.run('PRAGMA foreign_keys = ON;', (pragmaErr) => {
-      if (pragmaErr) console.warn('PRAGMA foreign_keys warning:', pragmaErr.message);
-    });
-  }
-});
+// -------------------------------------------------------------------
+// Promisified-compatible helpers (keep same API as before)
+// better-sqlite3 is sync, but we wrap in Promise for drop-in compat
+// -------------------------------------------------------------------
 
-// Promisified helper methods
 export const query = (sql, params = []) => {
-  return new Promise((resolve, reject) => {
-    db.all(sql, params, (err, rows) => {
-      if (err) reject(err);
-      else resolve(rows);
-    });
-  });
+  try {
+    const rows = db.prepare(sql).all(params);
+    return Promise.resolve(rows);
+  } catch (err) {
+    return Promise.reject(err);
+  }
 };
 
 export const getOne = (sql, params = []) => {
-  return new Promise((resolve, reject) => {
-    db.get(sql, params, (err, row) => {
-      if (err) reject(err);
-      else resolve(row);
-    });
-  });
+  try {
+    const row = db.prepare(sql).get(params);
+    return Promise.resolve(row);
+  } catch (err) {
+    return Promise.reject(err);
+  }
 };
 
 export const run = (sql, params = []) => {
-  return new Promise((resolve, reject) => {
-    db.run(sql, params, function (err) {
-      if (err) reject(err);
-      else resolve({ id: this.lastID, changes: this.changes });
-    });
-  });
+  try {
+    const stmt = db.prepare(sql);
+    const result = stmt.run(params);
+    return Promise.resolve({ id: result.lastInsertRowid, changes: result.changes });
+  } catch (err) {
+    return Promise.reject(err);
+  }
 };
 
 let dbInitialized = false;
@@ -248,7 +239,6 @@ export const initDb = async () => {
           ['Michael Chen', 'michael@example.com', hashedPass, 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80', 'UI/UX Designer']
         );
 
-        // Create sample project
         const proj = await run(
           'INSERT INTO projects (name, description, color, icon, owner_id) VALUES (?, ?, ?, ?, ?)',
           [
@@ -260,78 +250,57 @@ export const initDb = async () => {
           ]
         );
 
-        // Add members
         await run('INSERT INTO project_members (project_id, user_id, role) VALUES (?, ?, ?)', [proj.id, user1.id, 'owner']);
         await run('INSERT INTO project_members (project_id, user_id, role) VALUES (?, ?, ?)', [proj.id, user2.id, 'admin']);
         await run('INSERT INTO project_members (project_id, user_id, role) VALUES (?, ?, ?)', [proj.id, user3.id, 'member']);
 
-        // Create columns
         const col1 = await run('INSERT INTO columns (project_id, title, position, color) VALUES (?, ?, ?, ?)', [proj.id, 'Backlog', 0, '#64748B']);
         const col2 = await run('INSERT INTO columns (project_id, title, position, color) VALUES (?, ?, ?, ?)', [proj.id, 'In Progress', 1, '#3B82F6']);
         const col3 = await run('INSERT INTO columns (project_id, title, position, color) VALUES (?, ?, ?, ?)', [proj.id, 'Review & QA', 2, '#F59E0B']);
         const col4 = await run('INSERT INTO columns (project_id, title, position, color) VALUES (?, ?, ?, ?)', [proj.id, 'Done', 3, '#10B981']);
 
-        // Create sample tasks
         const task1 = await run(
           'INSERT INTO tasks (column_id, project_id, title, description, priority, due_date, position, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
           [col2.id, proj.id, 'Implement WebSocket Real-Time Sync', 'Connect Socket.IO rooms to broadcast drag-and-drop actions and new task cards across connected browsers instantly.', 'urgent', '2026-07-30', 0, user1.id]
         );
-
         const task2 = await run(
           'INSERT INTO tasks (column_id, project_id, title, description, priority, due_date, position, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
           [col2.id, proj.id, 'Design Glassmorphism Dashboard UI', 'Craft a sleek dark theme with vibrant accents, responsive cards, and smooth micro-animations.', 'high', '2026-07-28', 1, user3.id]
         );
-
         const task3 = await run(
           'INSERT INTO tasks (column_id, project_id, title, description, priority, due_date, position, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
           [col1.id, proj.id, 'Setup OAuth 2.0 & Social Logins', 'Integrate GitHub and Google sign-in options alongside standard JWT auth.', 'medium', '2026-08-05', 0, user2.id]
         );
-
         const task4 = await run(
           'INSERT INTO tasks (column_id, project_id, title, description, priority, due_date, position, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
           [col3.id, proj.id, 'Audit Database Queries & Indexes', 'Optimize SQLite queries and ensure foreign key cascade constraints function properly.', 'high', '2026-07-27', 0, user2.id]
         );
-
         const task5 = await run(
           'INSERT INTO tasks (column_id, project_id, title, description, priority, due_date, position, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
           [col4.id, proj.id, 'Initialize Monorepo Structure', 'Configure Express server, Vite React frontend, and concurrently script runner.', 'low', '2026-07-26', 0, user1.id]
         );
 
-        // Assignees
         await run('INSERT INTO task_assignees (task_id, user_id) VALUES (?, ?)', [task1.id, user2.id]);
         await run('INSERT INTO task_assignees (task_id, user_id) VALUES (?, ?)', [task1.id, user1.id]);
         await run('INSERT INTO task_assignees (task_id, user_id) VALUES (?, ?)', [task2.id, user3.id]);
         await run('INSERT INTO task_assignees (task_id, user_id) VALUES (?, ?)', [task4.id, user2.id]);
 
-        // Checklists
         await run('INSERT INTO checklists (task_id, title, completed) VALUES (?, ?, ?)', [task1.id, 'Setup Socket.IO server room handler', 1]);
         await run('INSERT INTO checklists (task_id, title, completed) VALUES (?, ?, ?)', [task1.id, 'Emit task_moved events on drag finish', 1]);
         await run('INSERT INTO checklists (task_id, title, completed) VALUES (?, ?, ?)', [task1.id, 'Handle user presence and online indicators', 0]);
-
         await run('INSERT INTO checklists (task_id, title, completed) VALUES (?, ?, ?)', [task2.id, 'Color tokens & Tailwind theme config', 1]);
         await run('INSERT INTO checklists (task_id, title, completed) VALUES (?, ?, ?)', [task2.id, 'Modal animations & slide-in drawers', 0]);
 
-        // Comments
         await run('INSERT INTO comments (task_id, user_id, content) VALUES (?, ?, ?)', [
-          task1.id,
-          user2.id,
-          'Socket server room handlers are ready! Broadcast testing looks ultra-fast.'
+          task1.id, user2.id, 'Socket server room handlers are ready! Broadcast testing looks ultra-fast.'
         ]);
         await run('INSERT INTO comments (task_id, user_id, content) VALUES (?, ?, ?)', [
-          task1.id,
-          user1.id,
-          'Awesome work Sarah! Make sure to notify assignees when someone comments.'
+          task1.id, user1.id, 'Awesome work Sarah! Make sure to notify assignees when someone comments.'
         ]);
 
-        // Sample Notification
         await run('INSERT INTO notifications (user_id, sender_id, type, title, message, entity_type, entity_id) VALUES (?, ?, ?, ?, ?, ?, ?)', [
-          user2.id,
-          user1.id,
-          'task_assigned',
-          'Assigned to Task',
-          'Alex Rivera assigned you to "Implement WebSocket Real-Time Sync"',
-          'task',
-          task1.id
+          user2.id, user1.id, 'task_assigned', 'Assigned to Task',
+          'Alex Rivera assigned you to "Implement WebSocket Real-Time Sync"', 'task', task1.id
         ]);
 
         console.log('Database seeded successfully!');

@@ -12,7 +12,7 @@
       "src": "api/index.js",
       "use": "@vercel/node",
       "config": {
-        "includeFiles": ["server/**", "node_modules/sqlite3/**"]
+        "includeFiles": ["server/**", "node_modules/better-sqlite3/**"]
       }
     }
   ],
